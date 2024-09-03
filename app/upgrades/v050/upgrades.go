@@ -10,6 +10,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/module"
 
 	"github.com/CosmWasm/wasmd/app/upgrades"
+	"github.com/CosmWasm/wasmd/x/wasm"
 )
 
 // UpgradeName defines the on-chain upgrade name
@@ -21,6 +22,8 @@ var Upgrade = upgrades.Upgrade{
 	StoreUpgrades: storetypes.StoreUpgrades{
 		Added: []string{
 			circuittypes.ModuleName,
+			"feeibc",
+			wasm.ModuleName,
 		},
 		Deleted: []string{},
 	},
