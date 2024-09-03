@@ -1,10 +1,20 @@
 package app
 
 import (
+	"context"
 	"fmt"
+
+	"github.com/cosmos/cosmos-sdk/types/module"
+
+	storetypes "cosmossdk.io/store/types"
+	circuittypes "cosmossdk.io/x/circuit/types"
 
 	upgradetypes "cosmossdk.io/x/upgrade/types"
 
+	// burnmoduletypes "github.com/BitCannaGlobal/bcna/x/burn/types"
+	// WASM upgrade/addition
+	v2 "github.com/CosmWasm/wasmd/x/wasm/migrations/v2"
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -17,63 +27,62 @@ import (
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-
-	"github.com/CosmWasm/wasmd/app/upgrades"
-	"github.com/CosmWasm/wasmd/app/upgrades/noop"
-	v050 "github.com/CosmWasm/wasmd/app/upgrades/v050"
-	v2 "github.com/CosmWasm/wasmd/x/wasm/migrations/v2"
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 )
 
-// Upgrades list of chain upgrades
-var Upgrades = []upgrades.Upgrade{v050.Upgrade}
+// RegisterUpgradeHandlers registers upgrade handlers.
 
-// RegisterUpgradeHandlers registers the chain upgrade handlers
-func (app *WasmApp) RegisterUpgradeHandlers() {
-	setupLegacyKeyTables(&app.ParamsKeeper)
-	if len(Upgrades) == 0 {
-		// always have a unique upgrade registered for the current version to test in system tests
-		Upgrades = append(Upgrades, noop.NewUpgrade(app.Version()))
+func (app WasmApp) RegisterUpgradeHandlers() {
+	upgradeInfo, err := app.UpgradeKeeper.ReadUpgradeInfoFromDisk()
+	if err != nil {
+		panic(err)
 	}
 
-	keepers := upgrades.AppKeepers{
-		AccountKeeper:         &app.AccountKeeper,
-		ParamsKeeper:          &app.ParamsKeeper,
-		ConsensusParamsKeeper: &app.ConsensusParamsKeeper,
-		CapabilityKeeper:      app.CapabilityKeeper,
-		IBCKeeper:             app.IBCKeeper,
-		Codec:                 app.appCodec,
-		GetStoreKey:           app.GetKey,
-	}
-	app.GetStoreKeys()
-	// register all upgrade handlers
-	for _, upgrade := range Upgrades {
-		app.UpgradeKeeper.SetUpgradeHandler(
-			upgrade.UpgradeName,
-			upgrade.CreateUpgradeHandler(
-				app.ModuleManager,
-				app.configurator,
-				&keepers,
-			),
-		)
-	}
+	app.StickyFingers(upgradeInfo)
+}
+func (app *WasmApp) StickyFingers(_ upgradetypes.Plan) {
+	planName := "stickyfingers"
+	app.UpgradeKeeper.SetUpgradeHandler(
+		planName,
+		func(ctx context.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
+			app.Logger().Info("Cosmos-SDK v0.50.x is here...")
+			// Print the modules with their respective ver.
+			for moduleName, version := range fromVM {
+				app.Logger().Info(fmt.Sprintf("Module: %s, Version: %d", moduleName, version))
 
+			}
+			// WASM
+			setupLegacyKeyTables(&app.ParamsKeeper)
+			app.GetStoreKeys()
+
+			versionMap, err := app.ModuleManager.RunMigrations(ctx, app.Configurator(), fromVM)
+			if err != nil {
+				return nil, err
+			}
+			app.Logger().Info(fmt.Sprintf("post migrate version map: %v", versionMap))
+			// return app.ModuleManager.RunMigrations(ctx, app.Configurator(), fromVM)
+			return versionMap, err
+		},
+	)
 	upgradeInfo, err := app.UpgradeKeeper.ReadUpgradeInfoFromDisk()
 	if err != nil {
 		panic(fmt.Sprintf("failed to read upgrade info from disk %s", err))
 	}
 
-	if app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
-		return
+	if upgradeInfo.Name == planName && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		storeUpgrades := storetypes.StoreUpgrades{
+			Added: []string{
+				circuittypes.ModuleName, // commented at v0.50>v0.50 uncomment for v0.47>v0.50
+				//ibcfeetypes.ModuleName,   // commented at v0.50>v0.50 uncomment for v0.47>v0.50
+				// nft.ModuleName,
+				wasmtypes.ModuleName,
+				// burnmoduletypes.ModuleName,
+			},
+		}
+
+		// configure store loader that checks if version == upgradeHeight and applies store upgrades
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
 	}
 
-	// register store loader for current upgrade
-	for _, upgrade := range Upgrades {
-		if upgradeInfo.Name == upgrade.UpgradeName {
-			app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &upgrade.StoreUpgrades)) // nolint:gosec
-			break
-		}
-	}
 }
 
 func setupLegacyKeyTables(k *paramskeeper.Keeper) {
