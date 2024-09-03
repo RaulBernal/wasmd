@@ -8,6 +8,7 @@ import (
 
 	storetypes "cosmossdk.io/store/types"
 	circuittypes "cosmossdk.io/x/circuit/types"
+	nft "cosmossdk.io/x/nft"
 	ibcfeetypes "github.com/cosmos/ibc-go/v8/modules/apps/29-fee/types"
 
 	upgradetypes "cosmossdk.io/x/upgrade/types"
@@ -74,7 +75,7 @@ func (app *WasmApp) StickyFingers(_ upgradetypes.Plan) {
 			Added: []string{
 				circuittypes.ModuleName, // commented at v0.50>v0.50 uncomment for v0.47>v0.50
 				ibcfeetypes.ModuleName,  // commented at v0.50>v0.50 uncomment for v0.47>v0.50
-				// nft.ModuleName,
+				nft.ModuleName,
 				wasmtypes.ModuleName,
 				// burnmoduletypes.ModuleName,
 			},
